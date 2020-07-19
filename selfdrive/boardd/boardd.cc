@@ -33,8 +33,8 @@
 
 #define MAX_IR_POWER 0.5f
 #define MIN_IR_POWER 0.0f
-#define CUTOFF_GAIN 0.015625f  // iso400
-#define SATURATE_GAIN 0.0625f  // iso1600
+#define CUTOFF_IL 200
+#define SATURATE_IL 1600
 #define NIBBLE_TO_HEX(n) ((n) < 10 ? (n) + '0' : ((n) - 10) + 'a')
 #define VOLTAGE_K 0.091  // LPF gain for 5s tau (dt/tau / (dt/tau + 1))
 
@@ -61,13 +61,16 @@ bool fake_send = false;
 bool loopback_can = false;
 cereal::HealthData::HwType hw_type = cereal::HealthData::HwType::UNKNOWN;
 bool is_pigeon = false;
-const uint32_t NO_IGNITION_CNT_MAX = 2 * 60 * 60 * 30;  // turn off charge after 30 hrs
-const float VBATT_START_CHARGING = 11.5;
-const float VBATT_PAUSE_CHARGING = 11.0;
 float voltage_f = 12.5;  // filtered voltage
 uint32_t no_ignition_cnt = 0;
 bool connected_once = false;
 bool ignition_last = false;
+
+#ifndef __x86_64__
+const uint32_t NO_IGNITION_CNT_MAX = 2 * 60 * 60 * 30;  // turn off charge after 30 hrs
+const float VBATT_START_CHARGING = 11.5;
+const float VBATT_PAUSE_CHARGING = 11.0;
+#endif
 
 bool safety_setter_thread_initialized = false;
 pthread_t safety_setter_thread_handle;
@@ -277,7 +280,6 @@ void can_recv(PubMaster &pm) {
   int err;
   uint32_t data[RECV_SIZE/4];
   int recv;
-  uint32_t f1, f2;
 
   uint64_t start_time = nanos_since_boot();
 
@@ -455,7 +457,7 @@ void can_health(PubMaster &pm) {
   uint16_t fan_speed_rpm = 0;
 
   pthread_mutex_lock(&usb_lock);
-  int sz = libusb_control_transfer(dev_handle, 0xc0, 0xb2, 0, 0, (unsigned char*)&fan_speed_rpm, sizeof(fan_speed_rpm), TIMEOUT);
+  libusb_control_transfer(dev_handle, 0xc0, 0xb2, 0, 0, (unsigned char*)&fan_speed_rpm, sizeof(fan_speed_rpm), TIMEOUT);
   pthread_mutex_unlock(&usb_lock);
 
   // Write to rtc once per minute when no ignition present
@@ -509,7 +511,7 @@ void can_health(PubMaster &pm) {
 
   size_t i = 0;
   for (size_t f = size_t(cereal::HealthData::FaultType::RELAY_MALFUNCTION);
-       f <= size_t(cereal::HealthData::FaultType::REGISTER_DIVERGENT); f++){
+       f <= size_t(cereal::HealthData::FaultType::INTERRUPT_RATE_KLINE_INIT); f++){
     if (fault_bits.test(f)) {
       faults.set(i, cereal::HealthData::FaultType(f));
       i++;
@@ -690,15 +692,15 @@ void *hardware_control_thread(void *crap) {
     }
     if (sm.updated("frontFrame")){
       auto event = sm["frontFrame"];
-      float cur_front_gain = event.getFrontFrame().getGainFrac();
+      int cur_integ_lines = event.getFrontFrame().getIntegLines();
       last_front_frame_t = event.getLogMonoTime();
 
-      if (cur_front_gain <= CUTOFF_GAIN) {
+      if (cur_integ_lines <= CUTOFF_IL) {
         ir_pwr = 100.0 * MIN_IR_POWER;
-      } else if (cur_front_gain > SATURATE_GAIN) {
+      } else if (cur_integ_lines > SATURATE_IL) {
         ir_pwr = 100.0 * MAX_IR_POWER;
       } else {
-        ir_pwr = 100.0 * (MIN_IR_POWER + ((cur_front_gain - CUTOFF_GAIN) * (MAX_IR_POWER - MIN_IR_POWER) / (SATURATE_GAIN - CUTOFF_GAIN)));
+        ir_pwr = 100.0 * (MIN_IR_POWER + ((cur_integ_lines - CUTOFF_IL) * (MAX_IR_POWER - MIN_IR_POWER) / (SATURATE_IL - CUTOFF_IL)));
       }
     }
     // Disable ir_pwr on front frame timeout
@@ -721,6 +723,7 @@ void *hardware_control_thread(void *crap) {
 
 #define pigeon_send(x) _pigeon_send(x, sizeof(x)-1)
 
+void hexdump(unsigned char *d, int l) __attribute__((unused));
 void hexdump(unsigned char *d, int l) {
   for (int i = 0; i < l; i++) {
     if (i!=0 && i%0x10 == 0) printf("\n");
