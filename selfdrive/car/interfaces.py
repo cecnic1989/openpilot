@@ -70,6 +70,7 @@ class CarInterfaceBase():
     ret.stoppingControl = False
     ret.longitudinalTuning.deadzoneBP = [0.]
     ret.longitudinalTuning.deadzoneV = [0.]
+    ret.cruiseStateSpeedFactor = 1.0  # Don't scale cruiseState's speed by default
     ret.longitudinalTuning.kpBP = [0.]
     ret.longitudinalTuning.kpV = [1.]
     ret.longitudinalTuning.kiBP = [0.]
