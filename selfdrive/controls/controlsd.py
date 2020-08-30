@@ -495,9 +495,6 @@ class Controls:
     controlsState.mapValid = self.sm['plan'].mapValid
     controlsState.forceDecel = bool(force_decel)
     controlsState.canErrorCounter = self.can_error_counter
-     # Report Smear/Scale according to car parameter's cruiseStateSpeedFactor if cruise speed was set
-    if self.v_cruise_kph != 255:
-      controlsState.vCruise = controlsState.vCruise * self.CP.cruiseStateSpeedFactor
 
     if self.CP.lateralTuning.which() == 'pid':
       controlsState.lateralControlState.pidState = lac_log
