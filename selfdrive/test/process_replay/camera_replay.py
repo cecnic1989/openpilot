@@ -9,6 +9,8 @@ from common.hardware import ANDROID
 os.environ['CI'] = "1"
 if ANDROID:
   os.environ['QCOM_REPLAY'] = "1"
+
+from common.timeout import Timeout
 import selfdrive.manager as manager
 
 from common.spinner import Spinner
@@ -56,7 +58,8 @@ def camera_replay(lr, fr):
         frame_idx += 1
 
         pm.send(msg.which(), f)
-        log_msgs.append(messaging.recv_one(sm.sock['model']))
+        with Timeout(seconds=15):
+          log_msgs.append(messaging.recv_one(sm.sock['model']))
 
         spinner.update("modeld replay %d/%d" % (frame_idx, fr.frame_count))
 
@@ -72,7 +75,6 @@ def camera_replay(lr, fr):
   manager.kill_managed_process('camerad')
   return log_msgs
 
-
 if __name__ == "__main__":
 
   update = "--update" in sys.argv
@@ -82,15 +84,8 @@ if __name__ == "__main__":
 
   log_msgs = camera_replay(list(lr), fr)
 
-  if update:
-    ref_commit = get_git_commit()
-    if ref_commit is None:
-      raise Exception("couldn't get ref commit")
-    log_fn = "%s_%s_%s.bz2" % (TEST_ROUTE, "model", ref_commit)
-    save_log(log_fn, log_msgs)
-    with open("model_replay_ref_commit", "w") as f:
-      f.write(ref_commit)
-  else:
+  failed = False
+  if not update:
     ref_commit = open("model_replay_ref_commit").read().strip()
     log_fn = "%s_%s_%s.bz2" % (TEST_ROUTE, "model", ref_commit)
     cmp_log = LogReader(BASE_URL + log_fn)
@@ -102,4 +97,16 @@ if __name__ == "__main__":
     with open("model_diff.txt", "w") as f:
       f.write(diff2)
 
-    sys.exit(int(failed))
+  if update or failed:
+    from selfdrive.test.openpilotci import upload_file
+
+    print("Uploading new refs")
+
+    new_commit = get_git_commit()
+    log_fn = "%s_%s_%s.bz2" % (TEST_ROUTE, "model", new_commit)
+    save_log(log_fn, log_msgs)
+    upload_file(log_fn, os.path.basename(log_fn))
+
+    print("\n\nNew ref commit: ", new_commit)
+
+  sys.exit(int(failed))
