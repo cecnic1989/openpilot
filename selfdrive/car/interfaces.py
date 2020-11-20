@@ -69,6 +69,7 @@ class CarInterfaceBase():
     ret.openpilotLongitudinalControl = False
     ret.startAccel = 0.0
     ret.stoppingControl = False
+    ret.cruiseStateSpeedFactor = 1.0
     ret.longitudinalTuning.deadzoneBP = [0.]
     ret.longitudinalTuning.deadzoneV = [0.]
     ret.longitudinalTuning.kpBP = [0.]

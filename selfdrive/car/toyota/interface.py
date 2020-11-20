@@ -80,6 +80,7 @@ class CarInterface(CarInterfaceBase):
       ret.mass = 4387. * CV.LB_TO_KG + STD_CARGO_KG
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.6], [0.05]]
       ret.lateralTuning.pid.kf = 0.00006
+      ret.cruiseStateSpeedFactor = 0.974
 
     elif candidate == CAR.LEXUS_RXH:
       stop_and_go = True
