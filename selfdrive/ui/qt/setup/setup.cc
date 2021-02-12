@@ -1,124 +1,121 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <curl/curl.h>
 
-#include <QString>
 #include <QLabel>
-#include <QWidget>
-#include <QLineEdit>
-#include <QPushButton>
 #include <QVBoxLayout>
 #include <QApplication>
 
 #include "setup.hpp"
+#include "offroad/networking.hpp"
+#include "widgets/input_field.hpp"
+#include "qt_window.hpp"
 
-#ifdef QCOM2
-#include <qpa/qplatformnativeinterface.h>
-#include <QPlatformSurfaceEvent>
-#include <wayland-client-protocol.h>
-#endif
+#define USER_AGENT "AGNOSSetup-0.1"
 
+void Setup::download(QString url) {
+  setCurrentIndex(count() - 2);
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 1000);
 
-int download(std::string url) {
-  CURL *curl;
-  curl = curl_easy_init();
-  if (!curl) return -1;
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    emit downloadFailed();
+  }
 
-  FILE *fp;
-  fp = fopen("/tmp/installer", "wb");
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  char tmpfile[] = "/tmp/installer_XXXXXX";
+  FILE *fp = fdopen(mkstemp(tmpfile), "w");
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.toStdString().c_str());
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-  curl_easy_setopt (curl, CURLOPT_VERBOSE, 1L);
-  curl_easy_perform(curl);
+  curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
+
+  int ret = curl_easy_perform(curl);
+  if (ret != CURLE_OK) {
+    emit downloadFailed();
+  }
   curl_easy_cleanup(curl);
   fclose(fp);
-  return 0;
+
+  rename(tmpfile, "/tmp/installer");
 }
 
 QLabel * title_label(QString text) {
   QLabel *l = new QLabel(text);
   l->setStyleSheet(R"(
-    QLabel {
-      font-size: 100px;
-      font-weight: bold;
-    }
+    font-size: 100px;
+    font-weight: 500;
   )");
   return l;
 }
 
-QWidget * Setup::getting_started() {
+QWidget * Setup::build_page(QString title, QWidget *content, bool next, bool prev) {
   QVBoxLayout *main_layout = new QVBoxLayout();
-  main_layout->setContentsMargins(200, 100, 200, 100);
+  main_layout->setContentsMargins(50, 50, 50, 50);
+  main_layout->addWidget(title_label(title), 0, Qt::AlignLeft | Qt::AlignTop);
 
-  main_layout->addWidget(title_label("Getting Started"), 0, Qt::AlignCenter);
+  main_layout->addWidget(content);
 
-  QLabel *body = new QLabel("Before we get on the road, let's finish\ninstallation and cover some details.");
-  body->setStyleSheet(R"(font-size: 65px;)");
-  main_layout->addWidget(body, 0, Qt::AlignCenter);
+  QHBoxLayout *nav_layout = new QHBoxLayout();
 
-  main_layout->addSpacing(100);
+  QPushButton *back_btn = new QPushButton("Back");
+  nav_layout->addWidget(back_btn, 0, Qt::AlignBottom | Qt::AlignLeft);
+  QObject::connect(back_btn, SIGNAL(released()), this, SLOT(prevPage()));
+  back_btn->setVisible(prev);
 
-  QPushButton *btn = new QPushButton("Continue");
-  main_layout->addWidget(btn);
-  QObject::connect(btn, SIGNAL(released()), this, SLOT(nextPage()));
+  QPushButton *continue_btn = new QPushButton("Continue");
+  nav_layout->addWidget(continue_btn, 0, Qt::AlignBottom | Qt::AlignRight);
+  QObject::connect(continue_btn, SIGNAL(released()), this, SLOT(nextPage()));
+  continue_btn->setVisible(next);
 
-  main_layout->addSpacing(100);
+  main_layout->addLayout(nav_layout, 0);
 
   QWidget *widget = new QWidget();
   widget->setLayout(main_layout);
   return widget;
 }
 
+QWidget * Setup::getting_started() {
+  QLabel *body = new QLabel("Before we get on the road, let's finish\ninstallation and cover some details.");
+  body->setAlignment(Qt::AlignHCenter);
+  body->setStyleSheet(R"(font-size: 80px;)");
+  return build_page("Getting Started", body, true, false);
+}
+
 QWidget * Setup::network_setup() {
-  QVBoxLayout *main_layout = new QVBoxLayout();
-  main_layout->setMargin(100);
-
-  main_layout->addWidget(title_label("Connect to WiFi"), 0, Qt::AlignCenter);
-
-  QPushButton *btn = new QPushButton("Continue");
-  main_layout->addWidget(btn);
-  QObject::connect(btn, SIGNAL(released()), this, SLOT(nextPage()));
-
-  QWidget *widget = new QWidget();
-  widget->setLayout(main_layout);
-  return widget;
+  Networking *wifi = new Networking(this, false);
+  return build_page("Connect to WiFi", wifi, true, true);
 }
 
 QWidget * Setup::software_selection() {
   QVBoxLayout *main_layout = new QVBoxLayout();
-  main_layout->setMargin(100);
-
-  main_layout->addWidget(title_label("Choose Software"), 0, Qt::AlignCenter);
 
   QPushButton *dashcam_btn = new QPushButton("Dashcam");
   main_layout->addWidget(dashcam_btn);
-  QObject::connect(dashcam_btn, SIGNAL(released()), this, SLOT(nextPage()));
+  QObject::connect(dashcam_btn, &QPushButton::released, this, [=]() {
+    this->download("https://dashcam.comma.ai");
+  });
 
   main_layout->addSpacing(50);
 
-  const char* env_url = getenv("CUSTOM_URL");
-  QString default_url = env_url == NULL ? "" : QString::fromStdString(env_url);
-  url_input = new QLineEdit(default_url);
-  url_input->setStyleSheet(R"(
-    color: black;
-    background-color: white;
-    font-size: 55px;
-    padding: 40px;
-  )");
-  main_layout->addWidget(url_input);
-
   QPushButton *custom_btn = new QPushButton("Custom");
   main_layout->addWidget(custom_btn);
-  QObject::connect(custom_btn, SIGNAL(released()), this, SLOT(nextPage()));
+  QObject::connect(custom_btn, &QPushButton::released, this, [=]() {
+    QString input_url = InputDialog::getText("Enter URL");
+    if (input_url.size()) {
+      this->download(input_url);
+    }
+  });
 
   QWidget *widget = new QWidget();
   widget->setLayout(main_layout);
-  return widget;
+  return build_page("Choose Software", widget, false, true);
 }
 
 QWidget * Setup::downloading() {
   QVBoxLayout *main_layout = new QVBoxLayout();
-
   main_layout->addWidget(title_label("Downloading..."), 0, Qt::AlignCenter);
 
   QWidget *widget = new QWidget();
@@ -126,62 +123,77 @@ QWidget * Setup::downloading() {
   return widget;
 }
 
-void Setup::nextPage() {
-  layout->setCurrentIndex(layout->currentIndex() + 1);
+QWidget * Setup::download_failed() {
+  QVBoxLayout *main_layout = new QVBoxLayout();
+  main_layout->setContentsMargins(50, 50, 50, 50);
+  main_layout->addWidget(title_label("Download Failed"), 0, Qt::AlignLeft | Qt::AlignTop);
 
-  // start download
-  if (layout->currentIndex() == layout->count() - 1)  {
-    std::string url = url_input->text().toStdString();
-    download(url);
-  }
+  QLabel *body = new QLabel("Ensure the entered URL is valid, and the device's network connection is good.");
+  body->setWordWrap(true);
+  body->setAlignment(Qt::AlignHCenter);
+  body->setStyleSheet(R"(font-size: 80px;)");
+  main_layout->addWidget(body);
+
+  QHBoxLayout *nav_layout = new QHBoxLayout();
+
+  QPushButton *reboot_btn = new QPushButton("Reboot");
+  nav_layout->addWidget(reboot_btn, 0, Qt::AlignBottom | Qt::AlignLeft);
+  QObject::connect(reboot_btn, &QPushButton::released, this, [=]() {
+#ifdef QCOM2
+    std::system("sudo reboot");
+#endif
+  });
+
+  QPushButton *restart_btn = new QPushButton("Start over");
+  nav_layout->addWidget(restart_btn, 0, Qt::AlignBottom | Qt::AlignRight);
+  QObject::connect(restart_btn, &QPushButton::released, this, [=]() {
+    setCurrentIndex(0);
+  });
+
+  main_layout->addLayout(nav_layout, 0);
+
+  QWidget *widget = new QWidget();
+  widget->setLayout(main_layout);
+  return widget;
+}
+
+void Setup::prevPage() {
+  setCurrentIndex(currentIndex() - 1);
+}
+
+void Setup::nextPage() {
+  setCurrentIndex(currentIndex() + 1);
 }
 
 Setup::Setup(QWidget *parent) {
-  layout = new QStackedLayout();
-  layout->addWidget(getting_started());
-  layout->addWidget(network_setup());
-  layout->addWidget(software_selection());
-  layout->addWidget(downloading());
+  addWidget(getting_started());
+  addWidget(network_setup());
+  addWidget(software_selection());
+  addWidget(downloading());
+  addWidget(download_failed());
 
-  // TODO: this is needed to make first page not squished, why?
-  layout->setSizeConstraint(QLayout::SetMinimumSize);
+  QObject::connect(this, SIGNAL(downloadFailed()), this, SLOT(nextPage()));
 
-  setLayout(layout);
   setStyleSheet(R"(
-    QWidget {
+    * {
+      font-family: Inter;
       color: white;
       background-color: black;
     }
     QPushButton {
-      font-size: 60px;
-      padding: 60px;
-      width: 800px;
-      color: white;
-      background-color: blue;
+      padding: 50px;
+      padding-right: 100px;
+      padding-left: 100px;
+      border: 7px solid white;
+      border-radius: 20px;
+      font-size: 50px;
     }
   )");
 }
 
 int main(int argc, char *argv[]) {
-#ifdef QCOM2
-  int w = 2160, h = 1080;
-#else
-  int w = 1920, h = 1080;
-#endif
-
   QApplication a(argc, argv);
-
   Setup setup;
-  setup.setFixedSize(w, h);
-  setup.show();
-
-#ifdef QCOM2
-  QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
-  wl_surface *s = reinterpret_cast<wl_surface*>(native->nativeResourceForWindow("surface", setup.windowHandle()));
-  wl_surface_set_buffer_transform(s, WL_OUTPUT_TRANSFORM_270);
-  wl_surface_commit(s);
-  setup.showFullScreen();
-#endif
-
+  setMainWindow(&setup);
   return a.exec();
 }

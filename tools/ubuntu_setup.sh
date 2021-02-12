@@ -6,6 +6,7 @@ sudo apt-get update && sudo apt-get install -y \
     build-essential \
     bzip2 \
     capnproto \
+    cppcheck \
     libcapnp-dev \
     clang \
     cmake \
@@ -44,6 +45,7 @@ sudo apt-get update && sudo apt-get install -y \
     python3-pip \
     qt5-default \
     qtmultimedia5-dev \
+    qtwebengine5-dev \
     screen \
     sudo \
     vim \

@@ -61,7 +61,7 @@ def cam_callback(image):
 
   dat = messaging.new_message('frame')
   dat.frame = {
-    "frameId": frame_id, # TODO: can we get frame ID from the CARLA camera?
+    "frameId": image.frame,
     "image": img.tostring(),
     "transform": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
   }
@@ -88,8 +88,9 @@ def health_function():
     dat.valid = True
     dat.health = {
       'ignitionLine': True,
-      'hwType': "blackPanda",
-      'controlsAllowed': True
+      'pandaType': "blackPanda",
+      'controlsAllowed': True,
+      'safetyModel': 'hondaNidec'
     }
     pm.send('health', dat)
     time.sleep(0.5)
@@ -103,7 +104,7 @@ def fake_gps():
     time.sleep(0.01)
 
 def fake_driver_monitoring():
-  pm = messaging.PubMaster(['driverState','dMonitoringState'])
+  pm = messaging.PubMaster(['driverState','driverMonitoringState'])
   while 1:
 
     # dmonitoringmodeld output
@@ -112,14 +113,14 @@ def fake_driver_monitoring():
     pm.send('driverState', dat)
 
     # dmonitoringd output
-    dat = messaging.new_message('dMonitoringState')
-    dat.dMonitoringState = {
+    dat = messaging.new_message('driverMonitoringState')
+    dat.driverMonitoringState = {
       "faceDetected": True,
       "isDistracted": False,
       "awarenessStatus": 1.,
       "isRHD": False,
     }
-    pm.send('dMonitoringState', dat)
+    pm.send('driverMonitoringState', dat)
 
     time.sleep(DT_DMON)
 
